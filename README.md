@@ -1,7 +1,12 @@
 # Cash Register Ledger
 
 A web application for tracking cash register income and expenses. Written in
-Python (Flask), runs as a website in Docker.
+Python (Flask), runs as a website in Docker. <img width="1280" height="628" alt="image" src="https://github.com/user-attachments/assets/555456c3-3077-4b44-9838-e7127959ef3c" />
+<img width="1280" height="725" alt="image" src="https://github.com/user-attachments/assets/090edb87-160b-490b-bb3a-d4987954d533" />
+<img width="1280" height="603" alt="image" src="https://github.com/user-attachments/assets/7561071c-84ff-4329-9011-b301e89f4630" />
+
+
+
 
 ## Features
 
@@ -31,7 +36,7 @@ Python (Flask), runs as a website in Docker.
   (respecting the active filters), plus a summary table with income,
   expenses and the register's overall balance per currency.
 
-⚠️ **Important:** if you are updating an already-running project from an
+ **Important:** if you are updating an already-running project from an
 older version — delete the `data/kasa.db` file before restarting, since the
 database schema has changed (registers, currency, exchange rate were added).
 
