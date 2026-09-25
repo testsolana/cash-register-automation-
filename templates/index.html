@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cash Register Ledger — {{ current_object['name'] }}</title>
+  <script>
+    (function() {
+      if (localStorage.getItem('kasa_theme') === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=12">
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">Register <span>operations ledger</span></div>
+    <div class="user-info">
+      <button type="button" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"></path></svg>
+      </button>
+      <a class="logout-link" href="{{ url_for('contragents_page') }}">Counterparties</a>
+      <span class="role-badge {{ 'viewer' if role == 'viewer' else '' }}">
+        {{ 'Editing' if role == 'editor' else 'Viewing' }}
+      </span>
+      <span>{{ username }}</span>
+      <a class="logout-link" href="{{ url_for('logout') }}">Log out</a>
+    </div>
+  </div>
+
+  <div class="object-tabs">
+    {% for obj in objects %}
+      <a href="{{ url_for('index', object_id=obj['id'], **filter_qs) }}"
+         class="tab {{ 'active' if obj['id'] == current_object['id'] else '' }}">{{ obj['name'] }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="container">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="object-header">
+      <h1 class="object-title">{{ current_object['name'] }}</h1>
+      {% if role == 'editor' and not is_total %}
+      <form method="POST" action="{{ url_for('rename_object', object_id=current_object['id']) }}" class="rename-form">
+        {% include '_filters_hidden.html' %}
+        <input type="text" name="name" value="{{ current_object['name'] }}" maxlength="50">
+        <button type="submit" class="btn small-outline">Rename</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if is_total %}
+      <p class="viewer-note">This is the summary register: it shows the totals of operations across all registers (Register 1 … Register {{ objects|length - 1 }}). Adding operations here is not available — enter them in the individual registers.</p>
+    {% endif %}
+
+    <div class="summary-total">
+      <div class="card balance-total">
+        <div class="label">{{ 'Total balance of all registers (in UAH equivalent at each operation\'s exchange rate)' if is_total else 'Register total balance (in UAH equivalent at each operation\'s exchange rate)' }}</div>
+        <div class="value">{{ uah_equivalent|money }} ₴</div>
+      </div>
+    </div>
+
+    <div class="summary">
+      {% for cur in currencies %}
+      <div class="card currency-card">
+        <div class="label">{{ currency_labels[cur] }}</div>
+        <div class="value">{{ balances[cur]|money }} {{ currency_symbols[cur] }}</div>
+        <div class="sub-row">
+          <span class="sub green">+{{ prihid_by_cur[cur]|money }}</span>
+          <span class="sub red">-{{ vydatok_by_cur[cur]|money }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if role == 'editor' and not is_total %}
+    <div class="panel">
+      <h2>Add operation — {{ current_object['name'] }}</h2>
+      <form method="POST" action="{{ url_for('add_operation') }}" id="add-form">
+        <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+        {% include '_filters_hidden.html' %}
+        <div class="form-row">
+          <div class="field">
+            <label for="date">Date</label>
+            <input type="date" id="date" name="date" value="{{ today }}" required>
+          </div>
+          <div class="field">
+            <label for="type">Operation type</label>
+            <select id="type" name="type" required>
+              <option value="prihid">Income</option>
+              <option value="vydatok">Expense</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="currency">Currency</label>
+            <select id="currency" name="currency" required onchange="onCurrencyChange()">
+              {% for cur in currencies %}
+                <option value="{{ cur }}">{{ currency_labels[cur] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="amount">Amount *</label>
+            <input type="text" id="amount" name="amount" placeholder="0.00" required>
+          </div>
+          <div class="field">
+            <label for="rate">Rate * (to UAH)</label>
+            <input type="text" id="rate" name="rate" placeholder="1.00" value="1.00" required readonly>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 14px;">
+          <div class="field">
+            <label for="contragent_id" id="contragent-label">From whom *</label>
+            <select id="contragent_id" name="contragent_id" required>
+              <option value="">— select a counterparty —</option>
+              {% for c in contragents %}
+                <option value="{{ c['id'] }}" {{ 'selected' if select_contragent and c['id'] == select_contragent else '' }}>{{ c['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <button type="button" class="btn small-outline" onclick="toggleQuickAdd()">+ New counterparty</button>
+          </div>
+          <div class="field description">
+            <label for="description">Operation purpose *</label>
+            <input type="text" id="description" name="description" placeholder="Required: e.g. payment for services" required>
+          </div>
+          <div class="field">
+            <button type="submit" class="btn">Add</button>
+          </div>
+        </div>
+      </form>
+
+      <form method="POST" action="{{ url_for('quick_add_contragent') }}" id="quick-add-form" class="quick-add-form" style="display:none;">
+        <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+        {% include '_filters_hidden.html' %}
+        <div class="form-row" style="margin-top: 14px;">
+          <div class="field description">
+            <label for="qa-name">New counterparty name / full name *</label>
+            <input type="text" id="qa-name" name="name" placeholder="e.g. John Smith Ltd." required>
+          </div>
+          <div class="field">
+            <button type="submit" class="btn small-outline">Save counterparty</button>
+          </div>
+        </div>
+      </form>
+
+      <p class="form-hint">* Fields marked with an asterisk are required. The "From / To" list is the counterparties directory (see the "Counterparties" section above); you can add to it with the "+ New counterparty" button.</p>
+    </div>
+    <script>
+      function onCurrencyChange() {
+        var cur = document.getElementById('currency').value;
+        var rateField = document.getElementById('rate');
+        if (cur === 'UAH') {
+          rateField.value = '1.00';
+          rateField.setAttribute('readonly', 'readonly');
+        } else {
+          rateField.removeAttribute('readonly');
+          rateField.value = '';
+          rateField.focus();
+        }
+      }
+      function onTypeChange() {
+        var type = document.getElementById('type').value;
+        var label = document.getElementById('contragent-label');
+        label.textContent = (type === 'prihid') ? 'From whom *' : 'To whom *';
+      }
+      function toggleQuickAdd() {
+        var form = document.getElementById('quick-add-form');
+        form.style.display = (form.style.display === 'none') ? 'block' : 'none';
+        if (form.style.display === 'block') {
+          document.getElementById('qa-name').focus();
+        }
+      }
+      document.getElementById('type').addEventListener('change', onTypeChange);
+      onTypeChange();
+    </script>
+
+    <div class="panel">
+      <h2>Transfer between registers</h2>
+      <form method="POST" action="{{ url_for('transfer_between_objects') }}" id="transfer-form">
+        {% include '_filters_hidden.html' %}
+        <div class="form-row">
+          <div class="field">
+            <label for="tr-date">Date</label>
+            <input type="date" id="tr-date" name="date" value="{{ today }}" required>
+          </div>
+          <div class="field">
+            <label for="tr-from">From register *</label>
+            <select id="tr-from" name="from_object_id" required>
+              {% for o in objects if o['id'] != 0 %}
+                <option value="{{ o['id'] }}" {{ 'selected' if o['id'] == current_object['id'] else '' }}>{{ o['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="tr-to">To register *</label>
+            <select id="tr-to" name="to_object_id" required>
+              {% for o in objects if o['id'] != 0 %}
+                <option value="{{ o['id'] }}">{{ o['name'] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="tr-currency">Currency</label>
+            <select id="tr-currency" name="currency" required onchange="onTransferCurrencyChange()">
+              {% for cur in currencies %}
+                <option value="{{ cur }}">{{ currency_labels[cur] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="tr-amount">Amount *</label>
+            <input type="text" id="tr-amount" name="amount" placeholder="0.00" required>
+          </div>
+          <div class="field">
+            <label for="tr-rate">Rate * (to UAH)</label>
+            <input type="text" id="tr-rate" name="rate" placeholder="1.00" value="1.00" required readonly>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 14px;">
+          <div class="field description">
+            <label for="tr-description">Purpose (optional)</label>
+            <input type="text" id="tr-description" name="description" placeholder="If left blank, it will be generated automatically">
+          </div>
+          <div class="field">
+            <button type="submit" class="btn">Transfer</button>
+          </div>
+        </div>
+      </form>
+      <p class="form-hint">
+        An "Expense" will be created in the source register with "To whom" = the destination register,
+        and an "Income" will be created in the destination register with "From whom" = the source register.
+        The two operations are linked: deleting one deletes the other as well.
+      </p>
+    </div>
+    <script>
+      function onTransferCurrencyChange() {
+        var cur = document.getElementById('tr-currency').value;
+        var rateField = document.getElementById('tr-rate');
+        if (cur === 'UAH') {
+          rateField.value = '1.00';
+          rateField.setAttribute('readonly', 'readonly');
+        } else {
+          rateField.removeAttribute('readonly');
+          rateField.value = '';
+          rateField.focus();
+        }
+      }
+      (function() {
+        var form = document.getElementById('transfer-form');
+        form.addEventListener('submit', function(e) {
+          var from = document.getElementById('tr-from').value;
+          var to = document.getElementById('tr-to').value;
+          if (from === to) {
+            e.preventDefault();
+            alert('The source and destination registers must be different');
+          }
+        });
+      })();
+    </script>
+
+    {% elif role != 'editor' %}
+      <p class="viewer-note">You are in view-only mode. Making changes is not available for this login.</p>
+    {% endif %}
+
+    <details class="filters-accordion" {{ 'open' if filters.active else '' }}>
+      <summary>
+        <span class="chevron">▾</span>
+        <span>Log filters</span>
+        {% if filters.active %}<span class="filters-badge">active</span>{% endif %}
+      </summary>
+      <div class="filters-body">
+        <form method="GET" action="{{ url_for('index') }}" class="filters-form">
+          <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+          <input type="hidden" name="filtered" value="1">
+          <div class="filters-grid">
+            <div class="field fld-currency">
+              <label>Currency</label>
+              <div class="checkbox-group">
+                {% for cur in currencies %}
+                  <label class="checkbox-item"><input type="checkbox" name="fcur" value="{{ cur }}" {{ 'checked' if cur in filters.fcur }}><span>{{ cur }}</span></label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="field fld-type">
+              <label>Operation type</label>
+              <div class="checkbox-group">
+                {% for t, label in type_labels.items() %}
+                  <label class="checkbox-item"><input type="checkbox" name="ftype" value="{{ t }}" {{ 'checked' if t in filters.ftype }}><span>{{ label }}</span></label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="field fld-contragent">
+              <label for="fctr">Counterparty</label>
+              <select id="fctr" name="fctr">
+                <option value="">— all —</option>
+                {% for c in contragents %}
+                  <option value="{{ c['id'] }}" {{ 'selected' if filters.fctr == c['id'] else '' }}>{{ c['name'] }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field fld-period">
+              <label>Period</label>
+              <div class="date-range">
+                <span class="date-range-label">from</span>
+                <input type="date" id="date_from" name="date_from" value="{{ filters.date_from }}">
+                <span class="date-range-label">to</span>
+                <input type="date" id="date_to" name="date_to" value="{{ filters.date_to }}">
+              </div>
+            </div>
+            <div class="filter-actions fld-actions">
+              <button type="submit" class="btn small-outline filter-action-btn">Apply</button>
+              {% if filters.active %}
+                <a class="btn small-outline filter-action-btn" href="{{ url_for('index', object_id=current_object['id']) }}">Reset</a>
+              {% endif %}
+            </div>
+          </div>
+        </form>
+      </div>
+    </details>
+
+    <div class="export-bar">
+      <a class="btn small-outline export-btn" href="{{ url_for('export_excel', object_id=current_object['id'], **filter_qs) }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Download Excel
+      </a>
+    </div>
+
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          {% if is_total %}<th>Register</th>{% endif %}
+          <th>Date</th>
+          <th>Type</th>
+          <th>Currency</th>
+          <th>Rate</th>
+          <th>Amount</th>
+          <th>From / To</th>
+          <th>Purpose</th>
+          {% if role == 'editor' %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% if operations %}
+          {% for op in operations %}
+          <tr>
+            {% if is_total %}<td>{{ op['object_name'] }}</td>{% endif %}
+            <td>{{ op['date'] }}</td>
+            <td>
+              <span class="type-tag {{ op['type'] }}">
+                {{ 'Income' if op['type'] == 'prihid' else 'Expense' }}
+              </span>
+            </td>
+            <td>{{ op['currency'] }}</td>
+            <td>{{ '%.2f'|format(op['rate']) }}</td>
+            <td class="amount {{ op['type'] }}">
+              {{ '+' if op['type'] == 'prihid' else '-' }}{{ op['amount']|money }} {{ currency_symbols[op['currency']] }}
+            </td>
+            <td class="desc-cell">
+              {% if op['transfer_object_name'] %}
+                <span class="transfer-tag" title="Transfer operation between registers — not editable">
+                  ⇄ {{ op['transfer_object_name'] }}
+                </span>
+              {% elif role == 'editor' %}
+                <div id="ctr-view-{{ op['id'] }}" class="desc-view">
+                  <span class="desc-text">{{ op['contragent_name'] or '—' }}</span>
+                  <button type="button" class="icon-btn" title="Edit" aria-label="Edit" onclick="showEditCtr({{ op['id'] }})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                  </button>
+                </div>
+                <form id="ctr-form-{{ op['id'] }}" class="desc-edit-form" method="POST"
+                      action="{{ url_for('edit_operation_contragent', op_id=op['id']) }}" style="display:none;">
+                  <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+                  {% include '_filters_hidden.html' %}
+                  <select name="contragent_id" required>
+                    <option value="">— select —</option>
+                    {% for c in contragents %}
+                      <option value="{{ c['id'] }}" {{ 'selected' if op['contragent_id'] == c['id'] else '' }}>{{ c['name'] }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="btn small-outline">Save</button>
+                  <button type="button" class="btn small-outline" onclick="cancelEditCtr({{ op['id'] }})">Cancel</button>
+                </form>
+              {% else %}
+                {{ op['contragent_name'] or '—' }}
+              {% endif %}
+            </td>
+            <td class="desc-cell">
+              {% if role == 'editor' %}
+                <div id="desc-view-{{ op['id'] }}" class="desc-view">
+                  <span class="desc-text">{{ op['description'] }}</span>
+                  <button type="button" class="icon-btn" title="Edit" aria-label="Edit" onclick="showEditDesc({{ op['id'] }})">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                  </button>
+                </div>
+                <form id="desc-form-{{ op['id'] }}" class="desc-edit-form" method="POST"
+                      action="{{ url_for('edit_description', op_id=op['id']) }}" style="display:none;">
+                  <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+                  {% include '_filters_hidden.html' %}
+                  <input type="text" name="description" value="{{ op['description'] }}" maxlength="255" required>
+                  <button type="submit" class="btn small-outline">Save</button>
+                  <button type="button" class="btn small-outline" onclick="cancelEditDesc({{ op['id'] }})">Cancel</button>
+                </form>
+              {% else %}
+                {{ op['description'] }}
+              {% endif %}
+            </td>
+            {% if role == 'editor' %}
+            <td>
+              {% set delete_confirm_text = ('Delete this transfer? Both paired operations will be deleted (in this register and in \'' ~ op['transfer_object_name'] ~ '\').') if op['transfer_object_name'] else 'Delete this operation?' %}
+              <form method="POST" action="{{ url_for('delete_operation', op_id=op['id']) }}"
+                    onsubmit="return confirm({{ delete_confirm_text|tojson }});">
+                <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+                {% include '_filters_hidden.html' %}
+                <button type="submit" class="icon-btn danger" title="Delete" aria-label="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                </button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr class="empty-row">
+            <td colspan="{{ 9 if is_total else 8 }}">No operations yet</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+    </div>
+
+  </div>
+
+  {% if role == 'editor' %}
+  <script>
+    function showEditDesc(id) {
+      document.getElementById('desc-view-' + id).style.display = 'none';
+      document.getElementById('desc-form-' + id).style.display = 'flex';
+    }
+    function cancelEditDesc(id) {
+      document.getElementById('desc-form-' + id).style.display = 'none';
+      document.getElementById('desc-view-' + id).style.display = 'flex';
+    }
+    function showEditCtr(id) {
+      document.getElementById('ctr-view-' + id).style.display = 'none';
+      document.getElementById('ctr-form-' + id).style.display = 'flex';
+    }
+    function cancelEditCtr(id) {
+      document.getElementById('ctr-form-' + id).style.display = 'none';
+      document.getElementById('ctr-view-' + id).style.display = 'flex';
+    }
+  </script>
+  {% endif %}
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      if (html.getAttribute('data-theme') === 'light') {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('kasa_theme', 'dark');
+      } else {
+        html.setAttribute('data-theme', 'light');
+        localStorage.setItem('kasa_theme', 'light');
+      }
+    }
+
+    // Prevent the page from "jumping" to the top after every button/form action:
+    // remember the scroll position before any navigation and restore it after load.
+    (function() {
+      var scrollKey = 'kasa_scrollY:' + location.pathname;
+      window.addEventListener('beforeunload', function() {
+        try { sessionStorage.setItem(scrollKey, String(window.scrollY)); } catch (e) {}
+      });
+      window.addEventListener('DOMContentLoaded', function() {
+        try {
+          var y = sessionStorage.getItem(scrollKey);
+          if (y !== null) {
+            window.scrollTo(0, parseInt(y, 10) || 0);
+            sessionStorage.removeItem(scrollKey);
+          }
+        } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>

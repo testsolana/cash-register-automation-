@@ -1,0 +1,10 @@
+{#- Hidden fields with the current filters. Added to forms that make a
+   POST request and return to index() — so the filters aren't reset after the action. -#}
+{% if filters and filters.active %}
+  <input type="hidden" name="filtered" value="1">
+  {% for c in filters.fcur %}<input type="hidden" name="fcur" value="{{ c }}">{% endfor %}
+  {% for t in filters.ftype %}<input type="hidden" name="ftype" value="{{ t }}">{% endfor %}
+  {% if filters.fctr %}<input type="hidden" name="fctr" value="{{ filters.fctr }}">{% endif %}
+  {% if filters.date_from %}<input type="hidden" name="date_from" value="{{ filters.date_from }}">{% endif %}
+  {% if filters.date_to %}<input type="hidden" name="date_to" value="{{ filters.date_to }}">{% endif %}
+{% endif %}

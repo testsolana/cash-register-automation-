@@ -1,0 +1,11 @@
+services:
+  kasa:
+    build: .
+    container_name: kasa
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - SECRET_KEY=change-this-key-to-your-own
+    restart: unless-stopped
