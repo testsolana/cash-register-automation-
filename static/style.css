@@ -439,6 +439,17 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+/* ---------- Inline "edit operation" row ---------- */
+tr.edit-row td {
+  background: var(--bg-panel-2);
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.op-edit-form .field select,
+.op-edit-form .field input {
+  min-width: 140px;
+}
+
 .empty-row td {
   text-align: center;
   color: var(--text-dim);

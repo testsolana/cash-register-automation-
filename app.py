@@ -784,6 +784,101 @@ def transfer_between_objects():
     return index_redirect(from_object_id)
 
 
+@app.route('/edit_operation/<int:op_id>', methods=['POST'])
+@login_required
+@editor_required
+def edit_operation(op_id):
+    """Full edit of an operation: date, type, currency, amount, rate,
+    counterparty and purpose — all in a single form/button. Transfer
+    operations (part of a register-to-register transfer) cannot be edited
+    here, since their fields are kept in sync between the paired entries."""
+    object_id = request.form.get('object_id', type=int)
+
+    conn = get_db()
+    op = conn.execute('SELECT id, transfer_group_id FROM operations WHERE id = ?', (op_id,)).fetchone()
+    if not op:
+        conn.close()
+        flash('Operation not found', 'error')
+        return index_redirect(object_id)
+    if op['transfer_group_id']:
+        conn.close()
+        flash('This is a transfer between registers — it cannot be edited this way', 'error')
+        return index_redirect(object_id)
+
+    op_type = request.form.get('type')
+    currency = request.form.get('currency')
+    amount_raw = request.form.get('amount')
+    rate_raw = request.form.get('rate')
+    description = request.form.get('description', '').strip()
+    contragent_id = request.form.get('contragent_id', type=int)
+    date = request.form.get('date')
+
+    if not date:
+        conn.close()
+        flash('Date is required', 'error')
+        return index_redirect(object_id)
+
+    if op_type not in ('prihid', 'vydatok'):
+        conn.close()
+        flash('Invalid operation type', 'error')
+        return index_redirect(object_id)
+
+    if currency not in CURRENCIES:
+        conn.close()
+        flash('Invalid currency', 'error')
+        return index_redirect(object_id)
+
+    try:
+        amount = float(str(amount_raw).replace(',', '.'))
+        if amount <= 0:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        conn.close()
+        flash('Invalid operation amount', 'error')
+        return index_redirect(object_id)
+
+    try:
+        rate = float(str(rate_raw).replace(',', '.'))
+        if rate <= 0:
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        conn.close()
+        flash('Rate is required and must be a positive number', 'error')
+        return index_redirect(object_id)
+
+    if currency == 'UAH':
+        rate = 1.0
+    else:
+        rate = round(rate, 2)
+
+    if not description:
+        conn.close()
+        flash('Operation purpose is a required field', 'error')
+        return index_redirect(object_id)
+
+    if not contragent_id:
+        conn.close()
+        flash('Select a counterparty', 'error')
+        return index_redirect(object_id)
+
+    contragent = conn.execute('SELECT id FROM contragents WHERE id = ?', (contragent_id,)).fetchone()
+    if not contragent:
+        conn.close()
+        flash('The selected counterparty was not found. Choose another or add a new one', 'error')
+        return index_redirect(object_id)
+
+    conn.execute(
+        'UPDATE operations SET date = ?, type = ?, currency = ?, amount = ?, rate = ?, '
+        'description = ?, contragent_id = ? WHERE id = ?',
+        (date, op_type, currency, amount, rate, description, contragent_id, op_id)
+    )
+    conn.commit()
+    conn.close()
+
+    flash('Operation updated', 'success')
+    return index_redirect(object_id)
+
+
 @app.route('/delete/<int:op_id>', methods=['POST'])
 @login_required
 @editor_required
@@ -801,67 +896,6 @@ def delete_operation(op_id):
         flash('Operation deleted', 'success')
     conn.commit()
     conn.close()
-    return index_redirect(object_id)
-
-
-@app.route('/edit_description/<int:op_id>', methods=['POST'])
-@login_required
-@editor_required
-def edit_description(op_id):
-    object_id = request.form.get('object_id', type=int)
-    description = request.form.get('description', '').strip()
-
-    if not description:
-        flash('Operation purpose cannot be empty', 'error')
-        return index_redirect(object_id)
-
-    conn = get_db()
-    op = conn.execute('SELECT id FROM operations WHERE id = ?', (op_id,)).fetchone()
-    if not op:
-        conn.close()
-        flash('Operation not found', 'error')
-        return index_redirect(object_id)
-
-    conn.execute('UPDATE operations SET description = ? WHERE id = ?', (description, op_id))
-    conn.commit()
-    conn.close()
-
-    flash('Operation purpose updated', 'success')
-    return index_redirect(object_id)
-
-
-@app.route('/edit_contragent/<int:op_id>', methods=['POST'])
-@login_required
-@editor_required
-def edit_operation_contragent(op_id):
-    object_id = request.form.get('object_id', type=int)
-    contragent_id = request.form.get('contragent_id', type=int)
-
-    if not contragent_id:
-        flash('Select a counterparty', 'error')
-        return index_redirect(object_id)
-
-    conn = get_db()
-    op = conn.execute('SELECT id, transfer_group_id FROM operations WHERE id = ?', (op_id,)).fetchone()
-    contragent = conn.execute('SELECT id FROM contragents WHERE id = ?', (contragent_id,)).fetchone()
-    if not op:
-        conn.close()
-        flash('Operation not found', 'error')
-        return index_redirect(object_id)
-    if op['transfer_group_id']:
-        conn.close()
-        flash('This is a transfer between registers — "From / To" is set automatically', 'error')
-        return index_redirect(object_id)
-    if not contragent:
-        conn.close()
-        flash('Counterparty not found', 'error')
-        return index_redirect(object_id)
-
-    conn.execute('UPDATE operations SET contragent_id = ? WHERE id = ?', (contragent_id, op_id))
-    conn.commit()
-    conn.close()
-
-    flash('Operation counterparty updated', 'success')
     return index_redirect(object_id)
 
 

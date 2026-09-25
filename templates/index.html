@@ -10,7 +10,7 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=12">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=13">
 </head>
 <body>
 
@@ -354,7 +354,7 @@
       <tbody>
         {% if operations %}
           {% for op in operations %}
-          <tr>
+          <tr id="op-view-{{ op['id'] }}">
             {% if is_total %}<td>{{ op['object_name'] }}</td>{% endif %}
             <td>{{ op['date'] }}</td>
             <td>
@@ -372,55 +372,21 @@
                 <span class="transfer-tag" title="Transfer operation between registers — not editable">
                   ⇄ {{ op['transfer_object_name'] }}
                 </span>
-              {% elif role == 'editor' %}
-                <div id="ctr-view-{{ op['id'] }}" class="desc-view">
-                  <span class="desc-text">{{ op['contragent_name'] or '—' }}</span>
-                  <button type="button" class="icon-btn" title="Edit" aria-label="Edit" onclick="showEditCtr({{ op['id'] }})">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
-                  </button>
-                </div>
-                <form id="ctr-form-{{ op['id'] }}" class="desc-edit-form" method="POST"
-                      action="{{ url_for('edit_operation_contragent', op_id=op['id']) }}" style="display:none;">
-                  <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
-                  {% include '_filters_hidden.html' %}
-                  <select name="contragent_id" required>
-                    <option value="">— select —</option>
-                    {% for c in contragents %}
-                      <option value="{{ c['id'] }}" {{ 'selected' if op['contragent_id'] == c['id'] else '' }}>{{ c['name'] }}</option>
-                    {% endfor %}
-                  </select>
-                  <button type="submit" class="btn small-outline">Save</button>
-                  <button type="button" class="btn small-outline" onclick="cancelEditCtr({{ op['id'] }})">Cancel</button>
-                </form>
               {% else %}
                 {{ op['contragent_name'] or '—' }}
               {% endif %}
             </td>
-            <td class="desc-cell">
-              {% if role == 'editor' %}
-                <div id="desc-view-{{ op['id'] }}" class="desc-view">
-                  <span class="desc-text">{{ op['description'] }}</span>
-                  <button type="button" class="icon-btn" title="Edit" aria-label="Edit" onclick="showEditDesc({{ op['id'] }})">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
-                  </button>
-                </div>
-                <form id="desc-form-{{ op['id'] }}" class="desc-edit-form" method="POST"
-                      action="{{ url_for('edit_description', op_id=op['id']) }}" style="display:none;">
-                  <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
-                  {% include '_filters_hidden.html' %}
-                  <input type="text" name="description" value="{{ op['description'] }}" maxlength="255" required>
-                  <button type="submit" class="btn small-outline">Save</button>
-                  <button type="button" class="btn small-outline" onclick="cancelEditDesc({{ op['id'] }})">Cancel</button>
-                </form>
-              {% else %}
-                {{ op['description'] }}
-              {% endif %}
-            </td>
+            <td class="desc-cell">{{ op['description'] }}</td>
             {% if role == 'editor' %}
-            <td>
+            <td style="white-space: nowrap;">
+              {% if not op['transfer_object_name'] %}
+                <button type="button" class="icon-btn" title="Edit" aria-label="Edit" onclick="showEditOp({{ op['id'] }})">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                </button>
+              {% endif %}
               {% set delete_confirm_text = ('Delete this transfer? Both paired operations will be deleted (in this register and in \'' ~ op['transfer_object_name'] ~ '\').') if op['transfer_object_name'] else 'Delete this operation?' %}
               <form method="POST" action="{{ url_for('delete_operation', op_id=op['id']) }}"
-                    onsubmit="return confirm({{ delete_confirm_text|tojson }});">
+                    onsubmit="return confirm({{ delete_confirm_text|tojson }});" style="display:inline; margin-left:4px;">
                 <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
                 {% include '_filters_hidden.html' %}
                 <button type="submit" class="icon-btn danger" title="Delete" aria-label="Delete">
@@ -430,6 +396,64 @@
             </td>
             {% endif %}
           </tr>
+          {% if role == 'editor' and not op['transfer_object_name'] %}
+          <tr id="op-edit-{{ op['id'] }}" class="edit-row" style="display:none;">
+            <td colspan="{{ (1 if is_total else 0) + 8 }}">
+              <form method="POST" action="{{ url_for('edit_operation', op_id=op['id']) }}" class="op-edit-form">
+                <input type="hidden" name="object_id" value="{{ current_object['id'] }}">
+                {% include '_filters_hidden.html' %}
+                <div class="form-row">
+                  <div class="field">
+                    <label>Date</label>
+                    <input type="date" name="date" value="{{ op['date'] }}" required>
+                  </div>
+                  <div class="field">
+                    <label>Type</label>
+                    <select name="type" required>
+                      <option value="prihid" {{ 'selected' if op['type'] == 'prihid' else '' }}>Income</option>
+                      <option value="vydatok" {{ 'selected' if op['type'] == 'vydatok' else '' }}>Expense</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Currency</label>
+                    <select id="edit-currency-{{ op['id'] }}" name="currency" required onchange="onEditCurrencyChange({{ op['id'] }})">
+                      {% for cur in currencies %}
+                        <option value="{{ cur }}" {{ 'selected' if op['currency'] == cur else '' }}>{{ currency_labels[cur] }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Amount *</label>
+                    <input type="text" name="amount" value="{{ '%.2f'|format(op['amount']) }}" required>
+                  </div>
+                  <div class="field">
+                    <label>Rate * (to UAH)</label>
+                    <input type="text" id="edit-rate-{{ op['id'] }}" name="rate" value="{{ '%.2f'|format(op['rate']) }}" required {{ 'readonly' if op['currency'] == 'UAH' else '' }}>
+                  </div>
+                </div>
+                <div class="form-row" style="margin-top: 10px;">
+                  <div class="field">
+                    <label>Counterparty *</label>
+                    <select name="contragent_id" required>
+                      <option value="">— select a counterparty —</option>
+                      {% for c in contragents %}
+                        <option value="{{ c['id'] }}" {{ 'selected' if op['contragent_id'] == c['id'] else '' }}>{{ c['name'] }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field description">
+                    <label>Purpose *</label>
+                    <input type="text" name="description" value="{{ op['description'] }}" maxlength="255" required>
+                  </div>
+                  <div class="field">
+                    <button type="submit" class="btn small-outline">Save</button>
+                    <button type="button" class="btn small-outline" onclick="cancelEditOp({{ op['id'] }})">Cancel</button>
+                  </div>
+                </div>
+              </form>
+            </td>
+          </tr>
+          {% endif %}
           {% endfor %}
         {% else %}
           <tr class="empty-row">
@@ -444,21 +468,24 @@
 
   {% if role == 'editor' %}
   <script>
-    function showEditDesc(id) {
-      document.getElementById('desc-view-' + id).style.display = 'none';
-      document.getElementById('desc-form-' + id).style.display = 'flex';
+    function showEditOp(id) {
+      document.getElementById('op-view-' + id).style.display = 'none';
+      document.getElementById('op-edit-' + id).style.display = 'table-row';
     }
-    function cancelEditDesc(id) {
-      document.getElementById('desc-form-' + id).style.display = 'none';
-      document.getElementById('desc-view-' + id).style.display = 'flex';
+    function cancelEditOp(id) {
+      document.getElementById('op-edit-' + id).style.display = 'none';
+      document.getElementById('op-view-' + id).style.display = 'table-row';
     }
-    function showEditCtr(id) {
-      document.getElementById('ctr-view-' + id).style.display = 'none';
-      document.getElementById('ctr-form-' + id).style.display = 'flex';
-    }
-    function cancelEditCtr(id) {
-      document.getElementById('ctr-form-' + id).style.display = 'none';
-      document.getElementById('ctr-view-' + id).style.display = 'flex';
+    function onEditCurrencyChange(id) {
+      var cur = document.getElementById('edit-currency-' + id).value;
+      var rateField = document.getElementById('edit-rate-' + id);
+      if (cur === 'UAH') {
+        rateField.value = '1.00';
+        rateField.setAttribute('readonly', 'readonly');
+      } else {
+        rateField.removeAttribute('readonly');
+        rateField.focus();
+      }
     }
   </script>
   {% endif %}
