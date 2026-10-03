@@ -27,11 +27,11 @@ def format_money(value):
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'kasa.db')
 
-# --- Users ---
-# User1  -> view only (viewer)
+# --- users ---
+# user1  -> view only (viewer)
 # user2  -> view + edit (editor)
 USERS = {
-    'User1': {'password': 'password', 'role': 'viewer'},
+    'user1': {'password': 'password', 'role': 'viewer'},
     'user2': {'password': 'password', 'role': 'editor'},
 }
 
