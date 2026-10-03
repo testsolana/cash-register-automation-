@@ -68,7 +68,7 @@ docker compose down
 
 | Login   | Password  | Role                                        |
 |---------|-----------|----------------------------------------------|
-| User1   | password  | View operations and balance only              |
+| user1   | password  | View operations and balance only              |
 | user2   | password  | View + add / delete operations                |
 
 > Logins, passwords and roles are stored in `app.py`, in the `USERS`
